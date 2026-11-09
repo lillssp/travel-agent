@@ -22,7 +22,7 @@ A chat agent that turns a short description of a trip into a day-by-day plan wit
 | `find_place` | Checks that a place exists in the city, returns address and coordinates | Geoapify Geocoding |
 | `find_food_nearby` | Restaurants, cafes, bars or fast food near given coordinates | Geoapify Places |
 | `calculate_budget` | Sums the plan by category and compares it with the budget | local |
-| `save_trip` | Saves the plan as a JSON file in the format of the site | local |
+| `save_trip` | Saves the plan as a JSON file | local |
  
 ## How it works
  
