@@ -314,3 +314,26 @@ def run_agent(client, history, user_message, on_tool_call=None):
         history.append(types.Content(role="user", parts=result_parts))
 
     return "I got stuck while planning (too many steps). Please try a simpler request."
+
+def main():
+    api_key = os.getenv("GEMINI_API_KEY") or getpass.getpass("Gemini API key: ")
+    client = genai.Client(api_key=api_key)  # keep the client in a variable
+    history = []
+ 
+    def show_tool(name, args, result):
+        print(f"  [tool] {name}({args})")
+        print(f"         -> {str(result)[:150]}")
+ 
+    print("Travel planner. Describe your trip (empty line to quit).\n")
+    while True:
+        message = input("You: ").strip()
+        if not message:
+            break
+        try:
+            print("\nAgent:", run_agent(client, history, message, on_tool_call=show_tool), "\n")
+        except Exception as e:
+            print(f"\nError: {e}\n")
+ 
+ 
+if __name__ == "__main__":
+    main()
