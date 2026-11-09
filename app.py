@@ -30,7 +30,6 @@ input, textarea { border-radius: 14px !important; }
 
 
 def describe_call(name, args, result):
-    """One short line about a tool call, for the 'agent steps' log."""
     if name == "geocode":
         line = f"📍 Looking up {args.get('place')}"
     elif name == "get_weather":
@@ -59,7 +58,6 @@ def describe_call(name, args, result):
 
 
 def get_client(api_key):
-    """Keep the Gemini client in the session, so that it is not garbage collected and closed."""
     if st.session_state.get("client_key") != api_key:
         st.session_state.client = genai.Client(api_key=api_key)
         st.session_state.client_key = api_key
@@ -67,14 +65,11 @@ def get_client(api_key):
 
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []  # what is shown on the screen
-    st.session_state.history = []   # what the model sees (messages and tool results)
+    st.session_state.messages = [] 
+    st.session_state.history = []  
 
 st.markdown(CSS, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# sidebar
-# ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("✈️ Travel Planner")
     if st.button("New chat", use_container_width=True):
@@ -92,32 +87,19 @@ with st.sidebar:
         "- 💾 save_trip: export the plan as JSON"
     )
 
-# ---------------------------------------------------------------------------
-# header
-# ---------------------------------------------------------------------------
 st.title("✈️ Travel Planner Agent")
 st.markdown(
     '<p class="subtitle">Describe your trip and get a day-by-day plan with weather, verified places, '
     "real restaurants nearby and a budget. The agent decides by itself which tools to use "
-    "and checks places on the map instead of making them up. Powered by Google Gemini.</p>",
+    "and checks places on the map instead of making them up.</p>",
     unsafe_allow_html=True,
 )
 
-api_key = st.text_input("🔑 Gemini API key", type="password", placeholder="AIza...")
+api_key = st.text_input("🔑 Gemini API key", type="password", placeholder="...")
 
 if not tools.GEOAPIFY_KEY:
     st.warning("GEOAPIFY_KEY is not set: place checking and restaurant search will not work.")
 
-if not st.session_state.messages:
-    example_date = (date.today() + timedelta(days=3)).isoformat()
-    st.caption(
-        f"Try: *Plan 3 days in Lisbon starting {example_date}, budget 400 EUR, "
-        "I love food and architecture*"
-    )
-
-# ---------------------------------------------------------------------------
-# chat history
-# ---------------------------------------------------------------------------
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         if msg.get("tool_calls"):
@@ -134,9 +116,6 @@ for i, msg in enumerate(st.session_state.messages):
                 key=f"download_{i}",
             )
 
-# ---------------------------------------------------------------------------
-# new message
-# ---------------------------------------------------------------------------
 prompt = st.chat_input("Describe your trip...")
 if prompt:
     if not api_key:
