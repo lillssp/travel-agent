@@ -12,22 +12,19 @@ st.set_page_config(page_title="Travel Planner Agent", page_icon="✈️")
 CSS = """
 <style>
 .stApp {
-    background: linear-gradient(135deg, #fde4f2 0%, #ece4fd 100%);
+    background: linear-gradient(135deg, #f3ecff 0%, #e3e0fb 100%);
 }
 [data-testid="stHeader"] { background: transparent; }
-h1 { color: #b04a9c !important; text-align: center; }
-.subtitle { text-align: center; color: #7a5c99; margin-bottom: 1.5rem; }
+h1 { color: #6b4fb3 !important; text-align: center; }
+.subtitle { text-align: center; color: #7b6aa3; margin-bottom: 1.5rem; }
 button[kind="primary"], button[kind="secondary"] { border-radius: 20px; }
 input, textarea { border-radius: 14px !important; }
 [data-testid="stChatMessage"] {
     background: rgba(255, 255, 255, 0.65);
     border-radius: 16px;
-}
-[data-testid="stChatMessage"] {
-    background: rgba(255, 255, 255, 0.65);
-    border-radius: 16px;
     padding: 1rem 1.5rem 1rem 1rem;
 }
+[data-testid="stChatMessage"] details { max-width: 100%; box-sizing: border-box; }
 </style>
 """
 
@@ -152,8 +149,8 @@ if prompt:
 
     with st.chat_message("assistant"):
         status = st.status("Planning...", expanded=True)
-        steps = []  # lines for the log
-        saved = {}  # the trip, if the agent saved one
+        steps = []  
+        saved = {} 
 
         def on_tool_call(name, args, result):
             line = describe_call(name, args, result)
@@ -168,7 +165,7 @@ if prompt:
         try:
             reply = run_agent(get_client(api_key), history, prompt, on_tool_call=on_tool_call)
         except Exception as e:
-            del history[size_before:]  # forget the failed turn so that the next one starts clean
+            del history[size_before:] 
             status.update(label="Something went wrong", state="error")
             st.error(f"❌ {e}")
             st.stop()

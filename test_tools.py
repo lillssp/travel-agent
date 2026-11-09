@@ -34,20 +34,20 @@ show("convert_currency(5000, UAH, EUR)", tools.convert_currency(5000, "UAH", "EU
 place = tools.find_place("Jerónimos Monastery", "Lisbon")
 show("find_place('Jerónimos Monastery', 'Lisbon')  -> real place", place)
 show("find_place('Belém Tower', 'Lisbon')  -> real place", tools.find_place("Belém Tower", "Lisbon"))
-show("find_place('Blorptastic Tower of Dreams', 'Lisbon')  -> invented, should be found=false or a warning",
+show("find_place('Blorptastic Tower of Dreams', 'Lisbon')  -> invented, should give a warning (name differs) or found=false",
      tools.find_place("Blorptastic Tower of Dreams", "Lisbon"))
-show("find_place('Pena Palace', 'Lisbon')  -> wrong city, should be found=false",
+show("find_place('Pena Palace', 'Lisbon')  -> wrong city, should give a warning or found=false",
      tools.find_place("Pena Palace", "Lisbon"))
 show("find_place('Pena Palace', 'Sintra')  -> right city, should be found",
      tools.find_place("Pena Palace", "Sintra"))
-show("find_place('Museu Nacional do Azulejo', 'Lisbon')  -> geocoder gives another museum, should be found=false",
+show("find_place('Museu Nacional do Azulejo', 'Lisbon')  -> geocoder may give another museum, should give a warning",
      tools.find_place("Museu Nacional do Azulejo", "Lisbon"))
 show("find_place('National Tile Museum', 'Lisbon')  -> should be found",
      tools.find_place("National Tile Museum", "Lisbon"))
-show("find_place('Santa Justa Elevator', 'Lisbon')  -> should be found (Santa Justa Lift)",
+show("find_place('Santa Justa Elevator', 'Lisbon')  -> should be found, no warning (Santa Justa Lift)",
      tools.find_place("Santa Justa Elevator", "Lisbon"))
 
-# ---- find_food_nearby ----
+# ---- find_food_nearby (near the monastery found above) ----
 if place.get("found"):
     lat, lon = place["latitude"], place["longitude"]
     show("find_food_nearby(restaurant)", tools.find_food_nearby(lat, lon, "restaurant", 700, 5))
