@@ -1,5 +1,18 @@
+"""Travel planning agent: Gemini + tools in a loop.
+
+How it works:
+  1. The user's message is added to the chat history.
+  2. Gemini answers either with text (we are done) or with a request to call one or
+     more tools.
+  3. We run the requested tools, give the results back to Gemini, and go to step 2.
+
+Try it in the terminal:  python agent.py
+"""
+
 import getpass
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 from dotenv import load_dotenv
@@ -11,15 +24,18 @@ import tools
 load_dotenv()
 
 MODELS = [
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
 ]
 RETRY_ERRORS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND")
+COOLDOWN_BUSY = 60      
+COOLDOWN_MISSING = 3600 
+MAX_PARALLEL_TOOLS = 4  
 
-MAX_STEPS = 15 
+MAX_STEPS = 15  
 
 TOOLS = {
     "geocode": tools.geocode,
@@ -64,7 +80,7 @@ DECLARATIONS = [
     },
     {
         "name": "convert_currency",
-        "description": "Convert money between currencies at the current exchange rate.",
+        "description": "Convert money between currencies at the current exchange rate (supports UAH).",
         "parameters": {
             "type": "OBJECT",
             "properties": {
@@ -186,57 +202,83 @@ DECLARATIONS = [
 
 def build_system_prompt():
     return f"""You are a friendly, practical travel planning assistant. Today is {date.today().isoformat()}.
-        You turn a traveler's wishes into a concrete day-by-day plan with a budget, using your tools.
+You turn a traveler's wishes into a concrete day-by-day plan with a budget, using your tools.
 
-        GATHERING INFORMATION
-        - You need: destination, travel dates (or start date and number of days), total budget with its
-        currency, and interests. Ask short questions for what is missing (several at once), but do not
-        interrogate: if the user gave enough, start planning right away.
+GATHERING INFORMATION
+- You need: destination, travel dates (or start date and number of days), total budget with its
+  currency, and interests. Ask short questions for what is missing (several at once), but do not
+  interrogate: if the user gave enough, start planning right away.
 
-        HOW TO PLAN
-        1. Check the weather for the dates with get_weather. If there is no forecast for those dates, say so
-        and describe the typical weather for that season instead. Never invent a forecast.
-        2. Pick sights, museums and activities that fit the interests, using your own knowledge. Group places
-        that are close to each other on the same day, and do not overload a day: about 2-3 main activities
-        plus meals. On rainy or stormy days prefer indoor activities (museums, churches, covered markets)
-        and keep outdoor ones for dry days; suggest an umbrella when rain is expected.
-        3. Verify EVERY place with find_place before it goes into the plan (pass the town the place is really
-        in). Drop or replace places that cannot be verified. Do not put unverified places into the plan.
-        4. For lunch and dinner, call find_food_nearby with the coordinates of the nearby sight and choose
-        ONLY from the places it returns. Never invent restaurants or cafes. Mention the cuisine or opening
-        hours only if the tool returned them; otherwise describe the place only by its name and type
-        (restaurant, cafe), without claims like "famous for" or "traditional".
-        5. Prices: you may give rough estimates for tickets, meals and transport, but always mark them as
-        approximate (for example "~12 EUR"). Exchange rates must come from convert_currency. Keep all costs
-        in one currency, the currency of the user's budget.
-        6. Every item that costs money, including local transport (metro, tram, taxi), must appear in the
-        plan as its own line, and free activities are listed with cost 0, so that the plan, the budget and
-        the saved trip all match. Run calculate_budget on exactly the items shown in the plan and tell the
-        user how much is left or over budget.
-        7. Call independent tools together in one step instead of one by one.
+HOW TO PLAN
+1. Check the weather for the dates with get_weather. If there is no forecast for those dates, say so
+   and describe the typical weather for that season instead. Never invent a forecast.
+2. Pick sights, museums and activities that fit the interests, using your own knowledge. Group places
+   that are close to each other on the same day, and do not overload a day: about 2-3 main activities
+   plus meals. On rainy or stormy days prefer indoor activities (museums, churches, covered markets)
+   and keep outdoor ones (viewpoints, squares, gardens, parks, roofless ruins, open-air lifts) for dry
+   days; suggest an umbrella when rain is expected.
+3. Verify EVERY place with find_place before it goes into the plan (pass the town the place is really
+   in). Drop or replace places with found=false. If the result has a warning, compare the name on the
+   map with the name you asked for: keep the place only if it is clearly the same one (another
+   language or spelling is fine), otherwise replace it. Do not put unverified places into the plan.
+   Use the name and address from the result in the plan.
+4. For lunch and dinner, call find_food_nearby with the coordinates of the nearby sight and choose
+   ONLY from the places it returns. Never invent restaurants or cafes. Mention the cuisine or opening
+   hours only if the tool returned them; otherwise describe the place only by its name and type
+   (restaurant, cafe), without claims like "famous for" or "traditional".
+5. Prices: you may give rough estimates for tickets, meals and transport, but always mark them as
+   approximate (for example "~12 EUR"). Exchange rates must come from convert_currency. Keep all costs
+   in one currency, the currency of the user's budget.
+6. Every item that costs money, including local transport (metro, tram, taxi), must appear in the
+   plan as its own line, and free activities are listed with cost 0, so that the plan, the budget and
+   the saved trip all match. Run calculate_budget on exactly the items shown in the plan and tell the
+   user how much is left or over budget.
+7. Call independent tools together in one step instead of one by one.
 
-        ANSWER FORMAT
-        - Present the plan by day: date, expected weather, then time, place, short description, estimated
-        cost. Add address for each verified place. Finish with the budget summary.
-        - Be concise and friendly. Reply in the language the user writes in.
-        - After showing the plan, offer to save it. Call save_trip only when the user agrees. Use the
-        addresses from find_place, the verified place names, categories from the allowed list, and put
-        the budget currency in the currency field. Put every item of the plan into places, also local
-        transport (category transport) and free activities (cost 0).
-        - If the user asks to change something, adjust the plan and re-verify only new places.
-        """
+ANSWER FORMAT
+- Present the plan by day: date, expected weather, then time, place, short description, estimated
+  cost. Add address for each verified place. Finish with the budget summary.
+- Be concise and friendly. Reply in the language the user writes in.
+- After showing the plan, offer to save it. Call save_trip only when the user agrees. Use the
+  addresses from find_place, the verified place names, categories from the allowed list, and put
+  the budget currency in the currency field. Put every item of the plan into places, also local
+  transport (category transport) and free activities (cost 0).
+- If the user asks to change something, adjust the plan and re-verify only new places.
+"""
 
 
 def _generate(client, contents, config):
+    if not hasattr(client, "_skip_until"):
+        client._skip_until = {}
+    now = time.time()
+    available = [m for m in MODELS if client._skip_until.get(m, 0) <= now]
+    candidates = available or MODELS 
+
     last_error = None
-    for model in MODELS:
+    for model in candidates:
         try:
             return client.models.generate_content(model=model, contents=contents, config=config)
         except Exception as e:
             last_error = str(e)
             if not any(code in last_error for code in RETRY_ERRORS):
                 raise 
-    raise RuntimeError(f"All models are busy right now, please try again in a minute. ({last_error})")
+            missing = "404" in last_error or "NOT_FOUND" in last_error
+            client._skip_until[model] = now + (COOLDOWN_MISSING if missing else COOLDOWN_BUSY)
+    raise RuntimeError(
+        "All models are busy or out of quota right now (free keys have low limits). "
+        f"Please try again in a minute. ({last_error})"
+    )
+
+
+def _run_tool(call):
+    """Run one tool requested by the model and return (args, result)."""
+    args = dict(call.args or {})
+    function = TOOLS.get(call.name)
+    try:
+        result = function(**args) if function else {"error": f"Unknown tool: {call.name}"}
+    except Exception as e: 
+        result = {"error": f"Tool {call.name} failed: {e}"}
+    return args, result
 
 
 def run_agent(client, history, user_message, on_tool_call=None):
@@ -258,15 +300,11 @@ def run_agent(client, history, user_message, on_tool_call=None):
         if not calls:
             return response.text or "The model returned an empty response. Please try again."
 
-        result_parts = []
-        for call in calls:
-            args = dict(call.args or {})
-            function = TOOLS.get(call.name)
-            try:
-                result = function(**args) if function else {"error": f"Unknown tool: {call.name}"}
-            except Exception as e: 
-                result = {"error": f"Tool {call.name} failed: {e}"}
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_TOOLS) as pool:
+            outcomes = list(pool.map(_run_tool, calls))
 
+        result_parts = []
+        for call, (args, result) in zip(calls, outcomes):
             if on_tool_call:
                 on_tool_call(call.name, args, result)
 
@@ -276,26 +314,3 @@ def run_agent(client, history, user_message, on_tool_call=None):
         history.append(types.Content(role="user", parts=result_parts))
 
     return "I got stuck while planning (too many steps). Please try a simpler request."
-
-def main():
-    api_key = os.getenv("GEMINI_API_KEY") or getpass.getpass("Gemini API key: ")
-    client = genai.Client(api_key=api_key)  
-    history = []
-
-    def show_tool(name, args, result):
-        print(f"  [tool] {name}({args})")
-        print(f"         -> {str(result)[:150]}")
-
-    print("Travel planner. Describe your trip (empty line to quit).\n")
-    while True:
-        message = input("You: ").strip()
-        if not message:
-            break
-        try:
-            print("\nAgent:", run_agent(client, history, message, on_tool_call=show_tool), "\n")
-        except Exception as e:
-            print(f"\nError: {e}\n")
-
-
-if __name__ == "__main__":
-    main()
